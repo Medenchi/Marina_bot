@@ -1,4 +1,3 @@
-cat > ai_bot.py << 'EOF'
 import asyncio
 import logging
 import aiohttp
@@ -208,4 +207,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-EOF
