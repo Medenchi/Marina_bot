@@ -6,7 +6,6 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List, Optional
-from database import Service, Product
 
 # ============ ГЛАВНОЕ МЕНЮ ============
 
@@ -135,44 +134,60 @@ def products_navigation_kb(
 
 # ============ ЗАПИСЬ НА СЪЁМКУ ============
 
-def booking_hours_kb() -> InlineKeyboardMarkup:
+def booking_services_kb(services: list) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
-    for hours in [1, 2, 3, 4, 5]:
-        builder.add(
+    for service in services:
+        builder.row(
             InlineKeyboardButton(
-                text=f"{hours} ч.", 
-                callback_data=f"booking_hours:{hours}"
+                text=f"📸 {service.name} - {service.price:,.0f}₽",
+                callback_data=f"book_service:{service.id}"
             )
         )
     
     builder.row(
-        InlineKeyboardButton(text="6+ часов", callback_data="booking_hours:6+")
+        InlineKeyboardButton(text="❌ Отмена", callback_data="main_menu")
+    )
+    
+    return builder.as_markup()
+
+def booking_hours_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(text="1 ч.", callback_data="booking_hours:1"),
+        InlineKeyboardButton(text="2 ч.", callback_data="booking_hours:2"),
+        InlineKeyboardButton(text="3 ч.", callback_data="booking_hours:3")
+    )
+    builder.row(
+        InlineKeyboardButton(text="4 ч.", callback_data="booking_hours:4"),
+        InlineKeyboardButton(text="5 ч.", callback_data="booking_hours:5"),
+        InlineKeyboardButton(text="6+ ч.", callback_data="booking_hours:6+")
     )
     builder.row(
         InlineKeyboardButton(text="❌ Отмена", callback_data="booking_cancel")
     )
     
-    builder.adjust(3)
     return builder.as_markup()
 
 def booking_people_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
-    for people in [1, 2, 3, 4, 5, "6+"]:
-        builder.add(
-            InlineKeyboardButton(
-                text=str(people), 
-                callback_data=f"booking_people:{people}"
-            )
-        )
-    
+    builder.row(
+        InlineKeyboardButton(text="1", callback_data="booking_people:1"),
+        InlineKeyboardButton(text="2", callback_data="booking_people:2"),
+        InlineKeyboardButton(text="3", callback_data="booking_people:3")
+    )
+    builder.row(
+        InlineKeyboardButton(text="4", callback_data="booking_people:4"),
+        InlineKeyboardButton(text="5", callback_data="booking_people:5"),
+        InlineKeyboardButton(text="6+", callback_data="booking_people:6+")
+    )
     builder.row(
         InlineKeyboardButton(text="⬅️ Назад", callback_data="booking_back:hours"),
         InlineKeyboardButton(text="❌ Отмена", callback_data="booking_cancel")
     )
     
-    builder.adjust(3)
     return builder.as_markup()
 
 def booking_confirm_kb() -> InlineKeyboardMarkup:
@@ -198,6 +213,10 @@ def share_phone_kb() -> ReplyKeyboardMarkup:
         one_time_keyboard=True
     )
 
+def remove_keyboard() -> ReplyKeyboardMarkup:
+    from aiogram.types import ReplyKeyboardRemove
+    return ReplyKeyboardRemove()
+
 # ============ АДМИН-ПАНЕЛЬ ============
 
 def admin_panel_kb() -> InlineKeyboardMarkup:
@@ -213,6 +232,9 @@ def admin_panel_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📋 Заявки на съёмку", callback_data="admin_bookings")
     )
     builder.row(
+        InlineKeyboardButton(text="🔗 Генератор ссылок", callback_data="admin_deeplinks")
+    )
+    builder.row(
         InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")
     )
     builder.row(
@@ -224,7 +246,7 @@ def admin_panel_kb() -> InlineKeyboardMarkup:
     
     return builder.as_markup()
 
-def admin_services_kb(services: List[Service]) -> InlineKeyboardMarkup:
+def admin_services_kb(services: list) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
     for service in services:
@@ -274,7 +296,7 @@ def admin_service_edit_kb(service_id: int, is_active: bool) -> InlineKeyboardMar
     
     return builder.as_markup()
 
-def admin_products_kb(products: List[Product]) -> InlineKeyboardMarkup:
+def admin_products_kb(products: list) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
     for product in products:
@@ -296,7 +318,36 @@ def admin_products_kb(products: List[Product]) -> InlineKeyboardMarkup:
     
     return builder.as_markup()
 
-def admin_bookings_kb(bookings, page: int = 0) -> InlineKeyboardMarkup:
+def admin_product_edit_kb(product_id: int, is_active: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(text="✏️ Название", callback_data=f"admin_pe_name:{product_id}"),
+        InlineKeyboardButton(text="📝 Описание", callback_data=f"admin_pe_desc:{product_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="💰 Цена", callback_data=f"admin_pe_price:{product_id}"),
+        InlineKeyboardButton(text="📦 Тип", callback_data=f"admin_pe_type:{product_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🖼 Фото", callback_data=f"admin_pe_photo:{product_id}")
+    )
+    
+    toggle_text = "🔴 Деактивировать" if is_active else "🟢 Активировать"
+    builder.row(
+        InlineKeyboardButton(text=toggle_text, callback_data=f"admin_pe_toggle:{product_id}")
+    )
+    
+    builder.row(
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"admin_pe_delete:{product_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_products")
+    )
+    
+    return builder.as_markup()
+
+def admin_bookings_kb(bookings: list, page: int = 0) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
     status_emoji = {
@@ -308,9 +359,10 @@ def admin_bookings_kb(bookings, page: int = 0) -> InlineKeyboardMarkup:
     
     for booking in bookings:
         emoji = status_emoji.get(booking.status, "❓")
+        date_str = booking.created_at.strftime('%d.%m') if booking.created_at else ""
         builder.row(
             InlineKeyboardButton(
-                text=f"{emoji} {booking.first_name} - {booking.created_at.strftime('%d.%m')}",
+                text=f"{emoji} {booking.first_name or 'Клиент'} - {date_str}",
                 callback_data=f"admin_booking_view:{booking.id}"
             )
         )
@@ -319,16 +371,18 @@ def admin_bookings_kb(bookings, page: int = 0) -> InlineKeyboardMarkup:
     nav_buttons = []
     if page > 0:
         nav_buttons.append(
-            InlineKeyboardButton(text="⬅️", callback_data=f"admin_bookings_page:{page-1}")
+            InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin_bookings_page:{page-1}")
         )
-    nav_buttons.append(
-        InlineKeyboardButton(text="➡️", callback_data=f"admin_bookings_page:{page+1}")
-    )
+    if len(bookings) >= 10:
+        nav_buttons.append(
+            InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"admin_bookings_page:{page+1}")
+        )
+    
     if nav_buttons:
         builder.row(*nav_buttons)
     
     builder.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")
+        InlineKeyboardButton(text="⬅️ Админ-панель", callback_data="admin_panel")
     )
     
     return builder.as_markup()
@@ -340,6 +394,7 @@ def admin_booking_view_kb(booking_id: int, status: str) -> InlineKeyboardMarkup:
         builder.row(
             InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin_b_confirm:{booking_id}")
         )
+    
     if status in ["new", "confirmed"]:
         builder.row(
             InlineKeyboardButton(text="✨ Завершить", callback_data=f"admin_b_complete:{booking_id}"),
@@ -351,6 +406,24 @@ def admin_booking_view_kb(booking_id: int, status: str) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_bookings")
+    )
+    
+    return builder.as_markup()
+
+def admin_settings_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(text="👤 Изменить контакты", callback_data="admin_set_contacts")
+    )
+    builder.row(
+        InlineKeyboardButton(text="📝 Изменить приветствие", callback_data="admin_set_welcome")
+    )
+    builder.row(
+        InlineKeyboardButton(text="❓ Изменить FAQ", callback_data="admin_set_faq")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")
     )
     
     return builder.as_markup()
@@ -389,6 +462,92 @@ def inline_product_kb(product_id: int, bot_username: str) -> InlineKeyboardMarku
             text="🎨 Все товары",
             url=f"https://t.me/{bot_username}?start=products"
         )
+    )
+    
+    return builder.as_markup()
+
+def inline_price_kb(bot_username: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(
+            text="📝 Записаться на съёмку",
+            url=f"https://t.me/{bot_username}?start=booking"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="📸 Подробнее об услугах",
+            url=f"https://t.me/{bot_username}?start=services"
+        )
+    )
+    
+    return builder.as_markup()
+
+def inline_catalog_kb(bot_username: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(
+            text="🎨 Посмотреть каталог",
+            url=f"https://t.me/{bot_username}?start=products"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="💬 Связаться",
+            url=f"https://t.me/{bot_username}"
+        )
+    )
+    
+    return builder.as_markup()
+
+def inline_booking_kb(bot_username: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(
+            text="📝 Записаться на съёмку",
+            url=f"https://t.me/{bot_username}?start=booking"
+        )
+    )
+    
+    return builder.as_markup()
+
+# ============ ПОДТВЕРЖДЕНИЯ ============
+
+def confirm_delete_kb(item_type: str, item_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(
+            text="✅ Да, удалить",
+            callback_data=f"confirm_delete:{item_type}:{item_id}"
+        ),
+        InlineKeyboardButton(
+            text="❌ Отмена",
+            callback_data=f"cancel_delete:{item_type}:{item_id}"
+        )
+    )
+    
+    return builder.as_markup()
+
+# ============ ОТМЕНА ============
+
+def cancel_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(text="❌ Отмена", callback_data="main_menu")
+    )
+    
+    return builder.as_markup()
+
+def back_to_admin_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Админ-панель", callback_data="admin_panel")
     )
     
     return builder.as_markup()
