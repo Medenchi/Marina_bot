@@ -2,8 +2,6 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.filters import Command
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import Service, Product, Booking, async_session
 from keyboards.keyboards import (
@@ -11,6 +9,7 @@ from keyboards.keyboards import (
     admin_services_kb,
     admin_service_edit_kb,
     admin_products_kb,
+    admin_product_edit_kb,
     admin_bookings_kb,
     admin_booking_view_kb,
     main_menu_kb
@@ -19,9 +18,10 @@ from config import config
 
 router = Router()
 
-# Фильтр админа
+
 def is_admin(user_id: int) -> bool:
     return user_id in config.ADMIN_IDS
+
 
 class AdminStates(StatesGroup):
     # Услуги
@@ -37,6 +37,10 @@ class AdminStates(StatesGroup):
     editing_service_duration = State()
     editing_service_photo = State()
     
+    # Подробная страница
+    editing_service_detail_page = State()
+    editing_product_detail_page = State()
+    
     # Товары
     adding_product_name = State()
     adding_product_desc = State()
@@ -51,8 +55,10 @@ class AdminStates(StatesGroup):
     creating_deeplink_text = State()
     creating_deeplink_button = State()
 
+
 # Временное хранилище
 admin_temp_data = {}
+
 
 @router.callback_query(F.data == "admin_panel")
 async def admin_panel(callback: CallbackQuery):
@@ -68,6 +74,7 @@ async def admin_panel(callback: CallbackQuery):
         reply_markup=admin_panel_kb()
     )
     await callback.answer()
+
 
 # ============ DEEPLINK ГЕНЕРАТОР ============
 
@@ -104,6 +111,7 @@ async def admin_deeplinks(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
+
 @router.callback_query(F.data == "admin_deeplinks_services")
 async def admin_deeplinks_services(callback: CallbackQuery):
     """Ссылки на услуги"""
@@ -132,6 +140,7 @@ async def admin_deeplinks_services(callback: CallbackQuery):
     
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
+
 
 @router.callback_query(F.data == "admin_deeplinks_products")
 async def admin_deeplinks_products(callback: CallbackQuery):
@@ -162,6 +171,7 @@ async def admin_deeplinks_products(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
+
 @router.callback_query(F.data == "admin_create_deeplink")
 async def admin_create_deeplink(callback: CallbackQuery, state: FSMContext):
     """Создание кастомной ссылки"""
@@ -180,6 +190,7 @@ async def admin_create_deeplink(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.creating_deeplink_text)
     await callback.answer()
 
+
 @router.message(AdminStates.creating_deeplink_text)
 async def process_deeplink_text(message: Message, state: FSMContext):
     """Обработка текста для deeplink"""
@@ -197,6 +208,7 @@ async def process_deeplink_text(message: Message, state: FSMContext):
     )
     await state.set_state(AdminStates.creating_deeplink_button)
 
+
 @router.message(AdminStates.creating_deeplink_button)
 async def process_deeplink_button(message: Message, state: FSMContext):
     """Обработка кнопки для deeplink"""
@@ -210,14 +222,10 @@ async def process_deeplink_button(message: Message, state: FSMContext):
     data = admin_temp_data.get(message.from_user.id, {})
     deeplink_text = data.get("deeplink_text", "")
     
-    # Создаём уникальный ID для ссылки
     unique_id = hashlib.md5(f"{time.time()}".encode()).hexdigest()[:8]
     
     button_text = message.text.strip()
     has_button = button_text.lower() not in ["нет", "no", "-", "без кнопки"]
-    
-    # Сохраняем в базу или файл (простой вариант - в память)
-    # В реальном проекте лучше сохранять в БД
     
     link = f"https://t.me/{config.MAIN_BOT_USERNAME}?start=custom_{unique_id}"
     
@@ -245,6 +253,7 @@ async def process_deeplink_button(message: Message, state: FSMContext):
     admin_temp_data.pop(message.from_user.id, None)
     await state.clear()
 
+
 # ============ УПРАВЛЕНИЕ УСЛУГАМИ ============
 
 @router.callback_query(F.data == "admin_services")
@@ -260,11 +269,13 @@ async def admin_services(callback: CallbackQuery):
     
     await callback.message.edit_text(
         "📸 <b>Управление услугами</b>\n\n"
+        "📖 = есть подробная страница\n"
         "Нажмите на услугу для редактирования:",
         parse_mode="HTML",
         reply_markup=admin_services_kb(services)
     )
     await callback.answer()
+
 
 @router.callback_query(F.data == "admin_service_add")
 async def admin_add_service_start(callback: CallbackQuery, state: FSMContext):
@@ -282,6 +293,7 @@ async def admin_add_service_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.adding_service_name)
     await callback.answer()
 
+
 @router.message(AdminStates.adding_service_name)
 async def admin_add_service_name(message: Message, state: FSMContext):
     """Название услуги"""
@@ -296,6 +308,7 @@ async def admin_add_service_name(message: Message, state: FSMContext):
     )
     await state.set_state(AdminStates.adding_service_desc)
 
+
 @router.message(AdminStates.adding_service_desc)
 async def admin_add_service_desc(message: Message, state: FSMContext):
     """Описание услуги"""
@@ -306,6 +319,7 @@ async def admin_add_service_desc(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.set_state(AdminStates.adding_service_price)
+
 
 @router.message(AdminStates.adding_service_price)
 async def admin_add_service_price(message: Message, state: FSMContext):
@@ -324,6 +338,7 @@ async def admin_add_service_price(message: Message, state: FSMContext):
     )
     await state.set_state(AdminStates.adding_service_duration)
 
+
 @router.message(AdminStates.adding_service_duration)
 async def admin_add_service_duration(message: Message, state: FSMContext):
     """Длительность услуги"""
@@ -335,12 +350,14 @@ async def admin_add_service_duration(message: Message, state: FSMContext):
     )
     await state.set_state(AdminStates.adding_service_photo)
 
+
 @router.message(AdminStates.adding_service_photo, F.photo)
 async def admin_add_service_photo(message: Message, state: FSMContext):
     """Фото услуги"""
     photo_id = message.photo[-1].file_id
     admin_temp_data[message.from_user.id]["photo_url"] = photo_id
     await save_new_service(message, state)
+
 
 @router.message(AdminStates.adding_service_photo)
 async def admin_add_service_skip_photo(message: Message, state: FSMContext):
@@ -351,12 +368,12 @@ async def admin_add_service_skip_photo(message: Message, state: FSMContext):
     else:
         await message.answer("Отправьте фото или напишите 'пропустить'")
 
+
 async def save_new_service(message: Message, state: FSMContext):
     """Сохранение новой услуги"""
     data = admin_temp_data.get(message.from_user.id, {})
     
     async with async_session() as session:
-        # Получаем максимальный order
         max_order = await session.execute(select(func.max(Service.order)))
         new_order = (max_order.scalar() or 0) + 1
         
@@ -381,6 +398,7 @@ async def save_new_service(message: Message, state: FSMContext):
         reply_markup=admin_panel_kb()
     )
 
+
 @router.callback_query(F.data.startswith("admin_service_edit:"))
 async def admin_edit_service(callback: CallbackQuery):
     """Редактирование услуги"""
@@ -396,20 +414,24 @@ async def admin_edit_service(callback: CallbackQuery):
         await callback.answer("Услуга не найдена", show_alert=True)
         return
     
+    has_detail = bool(service.detail_page_url)
+    detail_info = f"\n📖 <b>Подробная страница:</b> {'✅ Есть' if has_detail else '❌ Нет'}"
+    
     text = f"""✏️ <b>Редактирование услуги</b>
 
 📸 <b>Название:</b> {service.name}
 📝 <b>Описание:</b> {service.description or 'Нет'}
 💰 <b>Цена:</b> {service.price:,.0f} руб.
 ⏱ <b>Длительность:</b> {service.duration or 'Не указана'}
-📊 <b>Статус:</b> {'Активна ✅' if service.is_active else 'Неактивна ❌'}"""
+📊 <b>Статус:</b> {'Активна ✅' if service.is_active else 'Неактивна ❌'}{detail_info}"""
     
     await callback.message.edit_text(
         text,
         parse_mode="HTML",
-        reply_markup=admin_service_edit_kb(service_id, service.is_active)
+        reply_markup=admin_service_edit_kb(service_id, service.is_active, has_detail)
     )
     await callback.answer()
+
 
 @router.callback_query(F.data.startswith("admin_se_toggle:"))
 async def admin_toggle_service(callback: CallbackQuery):
@@ -428,7 +450,9 @@ async def admin_toggle_service(callback: CallbackQuery):
             await callback.answer(f"Услуга {status}")
     
     # Обновляем сообщение
+    callback.data = f"admin_service_edit:{service_id}"
     await admin_edit_service(callback)
+
 
 @router.callback_query(F.data.startswith("admin_se_delete:"))
 async def admin_delete_service(callback: CallbackQuery):
@@ -458,6 +482,196 @@ async def admin_delete_service(callback: CallbackQuery):
         reply_markup=admin_services_kb(services)
     )
 
+
+# ============ ПОДРОБНАЯ СТРАНИЦА УСЛУГИ ============
+
+@router.callback_query(F.data.startswith("admin_se_detail:"))
+async def admin_service_detail(callback: CallbackQuery, state: FSMContext):
+    """Добавление/редактирование подробной страницы услуги"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    service_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        service = await session.get(Service, service_id)
+    
+    if not service:
+        await callback.answer("Услуга не найдена", show_alert=True)
+        return
+    
+    admin_temp_data[callback.from_user.id] = {"editing_service_id": service_id}
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    constructor_link = f"{config.CONSTRUCTOR_URL}/index.html?service_id={service_id}&bot={config.MAIN_BOT_USERNAME}"
+    
+    text = f"""🎨 <b>Подробная страница для услуги</b>
+
+📸 <b>Услуга:</b> {service.name}
+
+"""
+    
+    if service.detail_page_url:
+        text += f"""✅ <b>Страница уже создана!</b>
+🔗 <code>{service.detail_page_url}</code>
+
+Вы можете:
+• Открыть конструктор и создать новую страницу
+• Или вставить новую ссылку вручную"""
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🎨 Открыть конструктор",
+                url=constructor_link
+            )],
+            [InlineKeyboardButton(
+                text="👁 Посмотреть страницу",
+                url=service.detail_page_url
+            )],
+            [InlineKeyboardButton(
+                text="📋 Вставить ссылку вручную",
+                callback_data=f"admin_se_detail_manual:{service_id}"
+            )],
+            [InlineKeyboardButton(
+                text="🗑 Удалить страницу",
+                callback_data=f"admin_se_detail_delete:{service_id}"
+            )],
+            [InlineKeyboardButton(
+                text="⬅️ Назад",
+                callback_data=f"admin_service_edit:{service_id}"
+            )]
+        ])
+    else:
+        text += """❌ <b>Страница ещё не создана</b>
+
+<b>Как добавить:</b>
+1️⃣ Нажмите "Открыть конструктор"
+2️⃣ Создайте красивую страницу с фото и видео
+3️⃣ Сохраните и скопируйте ссылку
+4️⃣ Вставьте ссылку сюда
+
+Или вставьте готовую ссылку вручную."""
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🎨 Открыть конструктор",
+                url=constructor_link
+            )],
+            [InlineKeyboardButton(
+                text="📋 Вставить ссылку вручную",
+                callback_data=f"admin_se_detail_manual:{service_id}"
+            )],
+            [InlineKeyboardButton(
+                text="⬅️ Назад",
+                callback_data=f"admin_service_edit:{service_id}"
+            )]
+        ])
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_se_detail_manual:"))
+async def admin_service_detail_manual(callback: CallbackQuery, state: FSMContext):
+    """Ручной ввод ссылки на страницу услуги"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    service_id = int(callback.data.split(":")[1])
+    admin_temp_data[callback.from_user.id] = {"editing_service_id": service_id}
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin_se_detail:{service_id}")]
+    ])
+    
+    await callback.message.edit_text(
+        "🔗 <b>Вставьте ссылку на страницу</b>\n\n"
+        "Отправьте ссылку, которую вы получили в конструкторе:\n\n"
+        "<i>Например:</i>\n"
+        f"<code>{config.CONSTRUCTOR_URL}/view.html?id=page_123...</code>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(AdminStates.editing_service_detail_page)
+    await callback.answer()
+
+
+@router.message(AdminStates.editing_service_detail_page)
+async def process_service_detail_page_url(message: Message, state: FSMContext):
+    """Обработка ссылки на страницу услуги"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    url = message.text.strip()
+    
+    if not url.startswith("http"):
+        await message.answer(
+            "❌ Некорректная ссылка. Отправьте полный URL, начинающийся с http:// или https://",
+            parse_mode="HTML"
+        )
+        return
+    
+    data = admin_temp_data.get(message.from_user.id, {})
+    service_id = data.get("editing_service_id")
+    
+    if not service_id:
+        await message.answer("❌ Ошибка. Попробуйте снова через админ-панель.")
+        await state.clear()
+        return
+    
+    async with async_session() as session:
+        service = await session.get(Service, service_id)
+        if service:
+            service.detail_page_url = url
+            await session.commit()
+            service_name = service.name
+        else:
+            service_name = "Услуга"
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Посмотреть страницу", url=url)],
+        [InlineKeyboardButton(text="⬅️ К услуге", callback_data=f"admin_service_edit:{service_id}")],
+        [InlineKeyboardButton(text="📋 Все услуги", callback_data="admin_services")]
+    ])
+    
+    await message.answer(
+        f"✅ <b>Страница успешно добавлена!</b>\n\n"
+        f"📸 <b>Услуга:</b> {service_name}\n"
+        f"🔗 <code>{url}</code>\n\n"
+        f"Теперь клиенты увидят кнопку «📖 Подробнее об услуге»",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    
+    admin_temp_data.pop(message.from_user.id, None)
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin_se_detail_delete:"))
+async def admin_delete_service_detail_page(callback: CallbackQuery):
+    """Удаление ссылки на страницу услуги"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    service_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        service = await session.get(Service, service_id)
+        if service:
+            service.detail_page_url = None
+            await session.commit()
+    
+    await callback.answer("Страница удалена! ✅")
+    
+    callback.data = f"admin_service_edit:{service_id}"
+    await admin_edit_service(callback)
+
+
 # ============ УПРАВЛЕНИЕ ТОВАРАМИ ============
 
 @router.callback_query(F.data == "admin_products")
@@ -473,11 +687,13 @@ async def admin_products(callback: CallbackQuery):
     
     await callback.message.edit_text(
         "🎨 <b>Управление товарами</b>\n\n"
+        "📖 = есть подробная страница\n"
         "Нажмите на товар для редактирования:",
         parse_mode="HTML",
         reply_markup=admin_products_kb(products)
     )
     await callback.answer()
+
 
 @router.callback_query(F.data == "admin_product_add")
 async def admin_add_product_start(callback: CallbackQuery, state: FSMContext):
@@ -495,6 +711,7 @@ async def admin_add_product_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.adding_product_name)
     await callback.answer()
 
+
 @router.message(AdminStates.adding_product_name)
 async def admin_add_product_name(message: Message, state: FSMContext):
     admin_temp_data[message.from_user.id]["name"] = message.text.strip()
@@ -506,6 +723,7 @@ async def admin_add_product_name(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.set_state(AdminStates.adding_product_type)
+
 
 @router.message(AdminStates.adding_product_type)
 async def admin_add_product_type(message: Message, state: FSMContext):
@@ -524,12 +742,14 @@ async def admin_add_product_type(message: Message, state: FSMContext):
     await message.answer("Введите <b>описание</b> товара:", parse_mode="HTML")
     await state.set_state(AdminStates.adding_product_desc)
 
+
 @router.message(AdminStates.adding_product_desc)
 async def admin_add_product_desc(message: Message, state: FSMContext):
     admin_temp_data[message.from_user.id]["description"] = message.text.strip()
     
     await message.answer("Введите <b>цену</b> в рублях:", parse_mode="HTML")
     await state.set_state(AdminStates.adding_product_price)
+
 
 @router.message(AdminStates.adding_product_price)
 async def admin_add_product_price(message: Message, state: FSMContext):
@@ -544,17 +764,20 @@ async def admin_add_product_price(message: Message, state: FSMContext):
     await message.answer("Отправьте <b>фото</b> товара или 'пропустить':", parse_mode="HTML")
     await state.set_state(AdminStates.adding_product_photo)
 
+
 @router.message(AdminStates.adding_product_photo, F.photo)
 async def admin_add_product_photo(message: Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
     admin_temp_data[message.from_user.id]["photo_url"] = photo_id
     await save_new_product(message, state)
 
+
 @router.message(AdminStates.adding_product_photo)
 async def admin_add_product_skip_photo(message: Message, state: FSMContext):
     if message.text.lower() in ["пропустить", "skip", "-"]:
         admin_temp_data[message.from_user.id]["photo_url"] = None
         await save_new_product(message, state)
+
 
 async def save_new_product(message: Message, state: FSMContext):
     data = admin_temp_data.get(message.from_user.id, {})
@@ -584,6 +807,243 @@ async def save_new_product(message: Message, state: FSMContext):
         reply_markup=admin_panel_kb()
     )
 
+
+@router.callback_query(F.data.startswith("admin_product_edit:"))
+async def admin_edit_product(callback: CallbackQuery):
+    """Редактирование товара"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    product_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+    
+    if not product:
+        await callback.answer("Товар не найден", show_alert=True)
+        return
+    
+    has_detail = bool(product.detail_page_url)
+    type_text = "Цифровой 📱" if product.product_type == "digital" else "Бумажный 📄"
+    detail_info = f"\n📖 <b>Подробная страница:</b> {'✅ Есть' if has_detail else '❌ Нет'}"
+    
+    text = f"""✏️ <b>Редактирование товара</b>
+
+🎨 <b>Название:</b> {product.name}
+📝 <b>Описание:</b> {product.description or 'Нет'}
+💰 <b>Цена:</b> {product.price:,.0f} руб.
+📦 <b>Тип:</b> {type_text}
+📊 <b>Статус:</b> {'Активен ✅' if product.is_active else 'Неактивен ❌'}{detail_info}"""
+    
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=admin_product_edit_kb(product_id, product.is_active, has_detail)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_pe_toggle:"))
+async def admin_toggle_product(callback: CallbackQuery):
+    """Переключение активности товара"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    product_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+        if product:
+            product.is_active = not product.is_active
+            await session.commit()
+            status = "активирован ✅" if product.is_active else "деактивирован ❌"
+            await callback.answer(f"Товар {status}")
+    
+    callback.data = f"admin_product_edit:{product_id}"
+    await admin_edit_product(callback)
+
+
+@router.callback_query(F.data.startswith("admin_pe_delete:"))
+async def admin_delete_product(callback: CallbackQuery):
+    """Удаление товара"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    product_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+        if product:
+            await session.delete(product)
+            await session.commit()
+    
+    await callback.answer("Товар удалён! 🗑")
+    
+    async with async_session() as session:
+        query = select(Product).order_by(Product.order)
+        result = await session.execute(query)
+        products = result.scalars().all()
+    
+    await callback.message.edit_text(
+        "🎨 <b>Управление товарами</b>",
+        parse_mode="HTML",
+        reply_markup=admin_products_kb(products)
+    )
+
+
+# ============ ПОДРОБНАЯ СТРАНИЦА ТОВАРА ============
+
+@router.callback_query(F.data.startswith("admin_pe_detail:"))
+async def admin_product_detail(callback: CallbackQuery, state: FSMContext):
+    """Добавление/редактирование подробной страницы товара"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    product_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+    
+    if not product:
+        await callback.answer("Товар не найден", show_alert=True)
+        return
+    
+    admin_temp_data[callback.from_user.id] = {"editing_product_id": product_id}
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    constructor_link = f"{config.CONSTRUCTOR_URL}/index.html?product_id={product_id}&bot={config.MAIN_BOT_USERNAME}"
+    
+    text = f"""🎨 <b>Подробная страница для товара</b>
+
+🛍 <b>Товар:</b> {product.name}
+
+"""
+    
+    if product.detail_page_url:
+        text += f"""✅ <b>Страница уже создана!</b>
+🔗 <code>{product.detail_page_url}</code>"""
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎨 Открыть конструктор", url=constructor_link)],
+            [InlineKeyboardButton(text="👁 Посмотреть страницу", url=product.detail_page_url)],
+            [InlineKeyboardButton(text="📋 Вставить ссылку вручную", callback_data=f"admin_pe_detail_manual:{product_id}")],
+            [InlineKeyboardButton(text="🗑 Удалить страницу", callback_data=f"admin_pe_detail_delete:{product_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin_product_edit:{product_id}")]
+        ])
+    else:
+        text += """❌ <b>Страница ещё не создана</b>
+
+<b>Как добавить:</b>
+1️⃣ Нажмите "Открыть конструктор"
+2️⃣ Создайте красивую страницу
+3️⃣ Сохраните и скопируйте ссылку
+4️⃣ Вставьте ссылку сюда"""
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎨 Открыть конструктор", url=constructor_link)],
+            [InlineKeyboardButton(text="📋 Вставить ссылку вручную", callback_data=f"admin_pe_detail_manual:{product_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin_product_edit:{product_id}")]
+        ])
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_pe_detail_manual:"))
+async def admin_product_detail_manual(callback: CallbackQuery, state: FSMContext):
+    """Ручной ввод ссылки на страницу товара"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    product_id = int(callback.data.split(":")[1])
+    admin_temp_data[callback.from_user.id] = {"editing_product_id": product_id}
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin_pe_detail:{product_id}")]
+    ])
+    
+    await callback.message.edit_text(
+        "🔗 <b>Вставьте ссылку на страницу</b>\n\n"
+        "Отправьте ссылку, которую вы получили в конструкторе:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(AdminStates.editing_product_detail_page)
+    await callback.answer()
+
+
+@router.message(AdminStates.editing_product_detail_page)
+async def process_product_detail_page_url(message: Message, state: FSMContext):
+    """Обработка ссылки на страницу товара"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    url = message.text.strip()
+    
+    if not url.startswith("http"):
+        await message.answer("❌ Некорректная ссылка. Отправьте полный URL.")
+        return
+    
+    data = admin_temp_data.get(message.from_user.id, {})
+    product_id = data.get("editing_product_id")
+    
+    if not product_id:
+        await message.answer("❌ Ошибка. Попробуйте снова через админ-панель.")
+        await state.clear()
+        return
+    
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+        if product:
+            product.detail_page_url = url
+            await session.commit()
+            product_name = product.name
+        else:
+            product_name = "Товар"
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Посмотреть страницу", url=url)],
+        [InlineKeyboardButton(text="⬅️ К товару", callback_data=f"admin_product_edit:{product_id}")],
+        [InlineKeyboardButton(text="🎨 Все товары", callback_data="admin_products")]
+    ])
+    
+    await message.answer(
+        f"✅ <b>Страница успешно добавлена!</b>\n\n"
+        f"🛍 <b>Товар:</b> {product_name}\n"
+        f"🔗 <code>{url}</code>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    
+    admin_temp_data.pop(message.from_user.id, None)
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin_pe_detail_delete:"))
+async def admin_delete_product_detail_page(callback: CallbackQuery):
+    """Удаление ссылки на страницу товара"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    product_id = int(callback.data.split(":")[1])
+    
+    async with async_session() as session:
+        product = await session.get(Product, product_id)
+        if product:
+            product.detail_page_url = None
+            await session.commit()
+    
+    await callback.answer("Страница удалена! ✅")
+    
+    callback.data = f"admin_product_edit:{product_id}"
+    await admin_edit_product(callback)
+
+
 # ============ УПРАВЛЕНИЕ ЗАЯВКАМИ ============
 
 @router.callback_query(F.data == "admin_bookings")
@@ -612,6 +1072,7 @@ async def admin_bookings(callback: CallbackQuery):
         reply_markup=admin_bookings_kb(bookings)
     )
     await callback.answer()
+
 
 @router.callback_query(F.data.startswith("admin_booking_view:"))
 async def admin_view_booking(callback: CallbackQuery):
@@ -665,6 +1126,7 @@ async def admin_view_booking(callback: CallbackQuery):
     )
     await callback.answer()
 
+
 @router.callback_query(F.data.startswith("admin_b_confirm:"))
 async def admin_confirm_booking(callback: CallbackQuery):
     """Подтверждение заявки"""
@@ -689,7 +1151,10 @@ async def admin_confirm_booking(callback: CallbackQuery):
                 pass
     
     await callback.answer("Заявка подтверждена!")
+    
+    callback.data = f"admin_booking_view:{booking_id}"
     await admin_view_booking(callback)
+
 
 @router.callback_query(F.data.startswith("admin_b_complete:"))
 async def admin_complete_booking(callback: CallbackQuery):
@@ -703,7 +1168,10 @@ async def admin_complete_booking(callback: CallbackQuery):
             await session.commit()
     
     await callback.answer("Заявка завершена!")
+    
+    callback.data = f"admin_booking_view:{booking_id}"
     await admin_view_booking(callback)
+
 
 @router.callback_query(F.data.startswith("admin_b_cancel:"))
 async def admin_cancel_booking(callback: CallbackQuery):
@@ -716,7 +1184,6 @@ async def admin_cancel_booking(callback: CallbackQuery):
             booking.status = "cancelled"
             await session.commit()
             
-            # Уведомляем клиента
             from main_bot import bot
             try:
                 await bot.send_message(
@@ -729,9 +1196,10 @@ async def admin_cancel_booking(callback: CallbackQuery):
                 pass
     
     await callback.answer("Заявка отменена")
+    
+    callback.data = f"admin_booking_view:{booking_id}"
     await admin_view_booking(callback)
 
-# ============ НАПИСАТЬ КЛИЕНТУ ============
 
 @router.callback_query(F.data.startswith("admin_b_message:"))
 async def admin_message_client_start(callback: CallbackQuery, state: FSMContext):
@@ -743,14 +1211,22 @@ async def admin_message_client_start(callback: CallbackQuery, state: FSMContext)
     
     admin_temp_data[callback.from_user.id] = {"booking_id": booking_id}
     
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin_booking_view:{booking_id}")]
+    ])
+    
     await callback.message.edit_text(
         "💬 <b>Написать клиенту</b>\n\n"
         "Введите сообщение, которое будет отправлено клиенту:\n\n"
         "<i>Можно использовать HTML форматирование</i>",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=kb
     )
     await state.set_state(AdminStates.messaging_client)
     await callback.answer()
+
 
 @router.message(AdminStates.messaging_client)
 async def admin_send_message_to_client(message: Message, state: FSMContext):
@@ -803,6 +1279,7 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
     admin_temp_data.pop(message.from_user.id, None)
     await state.clear()
 
+
 # ============ СТАТИСТИКА ============
 
 @router.callback_query(F.data == "admin_stats")
@@ -834,6 +1311,14 @@ async def admin_stats(callback: CallbackQuery):
         products_count = await session.execute(
             select(func.count(Product.id)).where(Product.is_active == True)
         )
+        
+        # Считаем услуги с подробными страницами
+        services_with_pages = await session.execute(
+            select(func.count(Service.id)).where(
+                Service.is_active == True,
+                Service.detail_page_url.isnot(None)
+            )
+        )
     
     text = f"""📊 <b>Статистика</b>
 
@@ -845,6 +1330,7 @@ async def admin_stats(callback: CallbackQuery):
 • ❌ Отменённых: {cancelled_count.scalar()}
 
 📸 <b>Активных услуг:</b> {services_count.scalar()}
+   ↳ С подробной страницей: {services_with_pages.scalar()}
 🎨 <b>Активных товаров:</b> {products_count.scalar()}"""
     
     await callback.message.edit_text(
