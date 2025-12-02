@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.session.aiohttp import AiohttpSession
 from sqlalchemy import select
 
 from config import config
@@ -21,8 +22,9 @@ from handlers.booking import handle_booking_deeplink
 # Логирование
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота
-bot = Bot(token=config.MAIN_BOT_TOKEN)
+# Инициализация бота с прокси
+session = AiohttpSession(proxy="http://127.0.0.1:12334")
+bot = Bot(token=config.MAIN_BOT_TOKEN, session=session)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
@@ -137,7 +139,7 @@ async def cmd_contacts(message: Message):
 
 👩‍🎨 <b>Фотограф:</b> Марина Заугольникова
 
-📱 <b>Telegram:</b> @marina_photo (замените на реальный)
+📱 <b>Telegram:</b> @marina_photo
 📷 <b>Instagram:</b> @marina_photo
 📧 <b>Email:</b> marina@photo.ru
 
@@ -272,7 +274,6 @@ async def show_service_by_index(message: Message, user_id: int, index: int, edit
     services = data.get("services", [])
     
     if not services:
-        # Загружаем заново
         async with async_session() as session:
             query = select(Service).where(Service.is_active == True).order_by(Service.order)
             result = await session.execute(query)
@@ -294,7 +295,6 @@ async def show_service_by_index(message: Message, user_id: int, index: int, edit
     
     kb = services_navigation_kb(index, len(services), service.id)
     
-    # Если есть фото
     if service.photo_url:
         try:
             if edit:
