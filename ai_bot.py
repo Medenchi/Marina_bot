@@ -9,18 +9,21 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
+from aiogram.client.session.aiohttp import AiohttpSession
+from sqlalchemy import select
 from config import config
+from database import Service, Product, async_session
 
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация Telegram бота
-bot = Bot(token=config.AI_BOT_TOKEN)
+# Инициализация с прокси
+session = AiohttpSession(proxy=config.PROXY_URL)
+bot = Bot(token=config.AI_BOT_TOKEN, session=session)
 dp = Dispatcher()
 
 # Настройка Gemini
 genai.configure(api_key=config.GEMINI_API_KEY)
 
-# Настройки генерации
 generation_config = {
     "temperature": 0.7,
     "top_p": 0.95,
@@ -28,7 +31,6 @@ generation_config = {
     "max_output_tokens": 600,
 }
 
-# Настройки безопасности (можно ослабить при необходимости)
 safety_settings = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
@@ -36,30 +38,86 @@ safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
 ]
 
-# Создаём модель
 model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",  # Быстрая и бесплатная модель
+    model_name="gemini-2.0-flash",
     generation_config=generation_config,
     safety_settings=safety_settings
 )
 
-# Системный промпт
-SYSTEM_PROMPT = f"""Ты - AI ассистент фотографа Марины Заугольниковой. Отвечай на русском языке.
 
-📸 Информация о Марине:
+async def get_services_info() -> str:
+    """Получаем актуальные услуги из БД"""
+    try:
+        async with async_session() as session:
+            query = select(Service).where(Service.is_active == True).order_by(Service.order)
+            result = await session.execute(query)
+            services = result.scalars().all()
+        
+        if not services:
+            return "Услуги временно недоступны."
+        
+        info = "АКТУАЛЬНЫЕ УСЛУГИ И ЦЕНЫ:\n\n"
+        for s in services:
+            info += f"📸 {s.name}\n"
+            info += f"   Цена: {s.price:,.0f} руб.\n"
+            if s.duration:
+                info += f"   Длительность: {s.duration}\n"
+            if s.description:
+                info += f"   Описание: {s.description[:100]}...\n"
+            info += "\n"
+        
+        return info
+    except Exception as e:
+        logging.error(f"Error getting services: {e}")
+        return "Не удалось загрузить услуги."
+
+
+async def get_products_info() -> str:
+    """Получаем актуальные товары из БД"""
+    try:
+        async with async_session() as session:
+            query = select(Product).where(Product.is_active == True).order_by(Product.order)
+            result = await session.execute(query)
+            products = result.scalars().all()
+        
+        if not products:
+            return "Товары временно недоступны."
+        
+        info = "АКТУАЛЬНЫЕ ТОВАРЫ:\n\n"
+        for p in products:
+            type_text = "Цифровой" if p.product_type == "digital" else "Бумажный"
+            info += f"🎨 {p.name} ({type_text})\n"
+            info += f"   Цена: {p.price:,.0f} руб.\n"
+            if p.description:
+                info += f"   Описание: {p.description[:100]}...\n"
+            info += "\n"
+        
+        return info
+    except Exception as e:
+        logging.error(f"Error getting products: {e}")
+        return "Не удалось загрузить товары."
+
+
+async def build_system_prompt() -> str:
+    """Строим системный промпт с актуальными данными из БД"""
+    
+    services_info = await get_services_info()
+    products_info = await get_products_info()
+    
+    prompt = f"""Ты - AI ассистент фотографа Марины Заугольниковой. Отвечай на русском языке.
+
+📸 О Марине:
 - Профессиональный фотограф
 - Специализация: портретная съёмка, семейные фотосессии, love story, детская съёмка
 - Работает в студиях Москвы
 - Создаёт уникальные коллажи (цифровые и бумажные)
 
-🎯 Примерные цены (уточняй что точные цены в боте):
-- Портретная съёмка: от 5000 руб/час
-- Семейная съёмка: от 7000 руб/час
-- Love Story: от 8000 руб/час
-- Детская съёмка: от 6000 руб/час
+{services_info}
+
+{products_info}
 
 📋 Твои задачи:
-1. Отвечать на вопросы о услугах фотографа
+1. Отвечать на вопросы о услугах и ценах (используй АКТУАЛЬНЫЕ данные выше!)
 2. Помогать с выбором типа съёмки
 3. Объяснять процесс работы
 4. Давать рекомендации по подготовке к съёмке
@@ -69,23 +127,28 @@ SYSTEM_PROMPT = f"""Ты - AI ассистент фотографа Марины
 - Будь дружелюбным и профессиональным
 - Отвечай кратко (2-4 предложения), но информативно
 - Используй эмодзи для дружелюбности
-- Всегда предлагай записаться через бот: @{config.MAIN_BOT_USERNAME}
-- Если не знаешь точный ответ - направляй к Марине
+- ВСЕГДА называй ТОЧНЫЕ цены из данных выше!
+- Предлагай записаться через бот: @{config.MAIN_BOT_USERNAME}
+- Если спрашивают о чём-то, чего нет в данных — направляй к Марине
 
-🔗 Полезные ссылки для ответов:
+🔗 Ссылки для ответов:
 - Бот для записи: @{config.MAIN_BOT_USERNAME}
 - Ссылка на запись: t.me/{config.MAIN_BOT_USERNAME}?start=booking
 - Посмотреть услуги: t.me/{config.MAIN_BOT_USERNAME}?start=services
+- Посмотреть товары: t.me/{config.MAIN_BOT_USERNAME}?start=products
 """
+    return prompt
+
 
 async def get_gemini_response(query: str) -> str:
-    """Получить ответ от ИИ АССИСТЕНТА"""
+    """Получить ответ от AI с актуальными данными"""
     try:
-        # Создаём чат с системным промптом
+        # Получаем актуальный промпт с данными из БД
+        system_prompt = await build_system_prompt()
+        
         chat = model.start_chat(history=[])
         
-        # Отправляем системный промпт + вопрос пользователя
-        full_prompt = f"{SYSTEM_PROMPT}\n\nВопрос клиента: {query}\n\nОтветь кратко и по делу:"
+        full_prompt = f"{system_prompt}\n\nВопрос клиента: {query}\n\nОтветь кратко и по делу, используя актуальные цены:"
         
         response = await asyncio.to_thread(
             chat.send_message,
@@ -101,6 +164,7 @@ async def get_gemini_response(query: str) -> str:
             f"Свяжитесь с Мариной напрямую через бот:\n"
             f"@{config.MAIN_BOT_USERNAME}"
         )
+
 
 @dp.inline_query()
 async def inline_ai_handler(inline_query: InlineQuery):
@@ -125,7 +189,7 @@ async def inline_ai_handler(inline_query: InlineQuery):
                         "• Сколько стоит семейная съёмка?\n"
                         "• Как подготовиться к фотосессии?\n"
                         "• Что взять с собой на съёмку?\n"
-                        "• Сколько фото получу?"
+                        "• Какие есть коллажи?"
                     ),
                     parse_mode="HTML"
                 ),
@@ -142,7 +206,7 @@ async def inline_ai_handler(inline_query: InlineQuery):
                 description="Спросить про стоимость услуг",
                 input_message_content=InputTextMessageContent(
                     message_text=(
-                        f"Чтобы узнать точные цены, введите:\n"
+                        f"Чтобы узнать цены, введите:\n"
                         f"<code>@{config.AI_BOT_USERNAME} сколько стоит съёмка</code>"
                     ),
                     parse_mode="HTML"
@@ -169,10 +233,9 @@ async def inline_ai_handler(inline_query: InlineQuery):
         ]
     
     else:
-        # Есть запрос - получаем ответ от Gemini
+        # Есть запрос - получаем ответ от Gemini с актуальными данными
         ai_response = await get_gemini_response(query)
         
-        # Основной ответ
         results.append(
             InlineQueryResultArticle(
                 id="ai_response",
@@ -208,7 +271,6 @@ async def inline_ai_handler(inline_query: InlineQuery):
             )
         )
         
-        # Быстрая кнопка записи
         results.append(
             InlineQueryResultArticle(
                 id="quick_book",
@@ -232,32 +294,62 @@ async def inline_ai_handler(inline_query: InlineQuery):
     
     await inline_query.answer(
         results=results,
-        cache_time=10,  # Короткий кэш
+        cache_time=10,
         is_personal=True
     )
 
-# Дополнительно: обработка личных сообщений боту
+
 @dp.message()
 async def handle_direct_message(message):
-    """Если кто-то пишет боту напрямую"""
+    """Если кто-то пишет боту напрямую — тоже отвечаем с AI!"""
+    query = message.text
+    
+    if not query or query.startswith('/'):
+        await message.answer(
+            f"🤖 <b>AI Ассистент Марины</b>\n\n"
+            f"Задайте мне любой вопрос о фотосессиях!\n\n"
+            f"Или используйте в любом чате:\n"
+            f"<code>@{config.AI_BOT_USERNAME} ваш вопрос</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="📸 Бот Марины",
+                    url=f"https://t.me/{config.MAIN_BOT_USERNAME}"
+                )
+            ]])
+        )
+        return
+    
+    # Отправляем "печатает..."
+    await message.answer_chat_action("typing")
+    
+    # Получаем ответ от AI с актуальными данными
+    ai_response = await get_gemini_response(query)
+    
     await message.answer(
-        f"🤖 <b>Я работаю только в inline режиме!</b>\n\n"
-        f"Чтобы задать вопрос, введите в любом чате:\n"
-        f"<code>@{config.AI_BOT_USERNAME} ваш вопрос</code>\n\n"
-        f"Или перейдите в основной бот Марины:",
+        f"🤖 {ai_response}",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="📸 Бот Марины",
-                url=f"https://t.me/{config.MAIN_BOT_USERNAME}"
-            )
-        ]])
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📝 Записаться",
+                    url=f"https://t.me/{config.MAIN_BOT_USERNAME}?start=booking"
+                ),
+                InlineKeyboardButton(
+                    text="📸 Услуги",
+                    url=f"https://t.me/{config.MAIN_BOT_USERNAME}?start=services"
+                )
+            ]
+        ])
     )
+
 
 async def main():
     """Запуск AI бота"""
     logging.info("🤖 AI бот (Gemini) запускается...")
+    logging.info("📊 Подключён к БД основного бота — цены актуальные!")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
