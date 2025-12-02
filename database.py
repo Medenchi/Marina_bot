@@ -7,6 +7,7 @@ from config import config
 
 Base = declarative_base()
 
+
 class Service(Base):
     """Услуги фотографа"""
     __tablename__ = "services"
@@ -17,9 +18,14 @@ class Service(Base):
     price = Column(Float)
     duration = Column(String(100))  # например "1-2 часа"
     photo_url = Column(String(500))  # фото для услуги
+    
+    # Ссылка на подробную страницу (Mini App)
+    detail_page_url = Column(String(500), nullable=True)
+    
     is_active = Column(Boolean, default=True)
     order = Column(Integer, default=0)  # порядок отображения
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class Product(Base):
     """Товары (коллажи бумажные и цифровые)"""
@@ -31,9 +37,14 @@ class Product(Base):
     price = Column(Float)
     product_type = Column(String(50))  # "digital" или "paper"
     photo_url = Column(String(500))
+    
+    # Ссылка на подробную страницу
+    detail_page_url = Column(String(500), nullable=True)
+    
     is_active = Column(Boolean, default=True)
     order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class Booking(Base):
     """Записи на съёмку"""
@@ -61,7 +72,8 @@ class Booking(Base):
     # Статус
     status = Column(String(50), default="new")  # new, confirmed, completed, cancelled
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
+
 class BotSettings(Base):
     """Настройки бота"""
     __tablename__ = "bot_settings"
@@ -70,14 +82,36 @@ class BotSettings(Base):
     key = Column(String(100), unique=True)
     value = Column(Text)
 
+
+class CustomPage(Base):
+    """Кастомные страницы (для хранения данных конструктора)"""
+    __tablename__ = "custom_pages"
+    
+    id = Column(Integer, primary_key=True)
+    page_id = Column(String(100), unique=True, nullable=False)  # Уникальный ID страницы
+    name = Column(String(200))
+    data = Column(Text)  # JSON данные страницы
+    
+    # Связь с услугой или товаром
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Создание engine и сессии
-engine = create_async_engine(config.DATABASE_URL, echo=True)
+engine = create_async_engine(config.DATABASE_URL, echo=False)
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+
 async def init_db():
+    """Инициализация базы данных"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+
 async def get_session() -> AsyncSession:
+    """Получить сессию БД"""
     async with async_session() as session:
         yield session
