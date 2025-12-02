@@ -23,7 +23,7 @@ from handlers.booking import handle_booking_deeplink
 logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота с прокси
-session = AiohttpSession(proxy="http://127.0.0.1:12334")
+session = AiohttpSession(proxy=config.PROXY_URL)
 bot = Bot(token=config.MAIN_BOT_TOKEN, session=session)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -36,6 +36,7 @@ dp.include_router(admin.router)
 # Временное хранилище для навигации
 user_navigation = {}
 
+
 # ============ ОСНОВНЫЕ КОМАНДЫ ============
 
 @dp.message(CommandStart())
@@ -43,34 +44,28 @@ async def cmd_start(message: Message, state: FSMContext):
     """Обработка /start и deeplinks"""
     await state.clear()
     
-    # Проверяем deeplink параметры
     args = message.text.split(maxsplit=1)
     
     if len(args) > 1:
         param = args[1]
         
-        # Запись на съёмку
         if param == "booking" or param.startswith("book_"):
             await handle_booking_deeplink(message, state, param)
             return
         
-        # Просмотр услуг
         elif param == "services":
             await show_services(message)
             return
         
-        # Просмотр товаров
         elif param == "products":
             await show_products_filter(message)
             return
         
-        # Заказ товара
         elif param.startswith("order_"):
             product_id = int(param.replace("order_", ""))
             await handle_product_order(message, product_id)
             return
     
-    # Обычный старт
     is_admin = message.from_user.id in config.ADMIN_IDS
     
     welcome_text = """👋 <b>Добро пожаловать!</b>
@@ -92,6 +87,7 @@ async def cmd_start(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=main_menu_kb(is_admin)
     )
+
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
@@ -117,20 +113,24 @@ async def cmd_help(message: Message):
     
     await message.answer(help_text, parse_mode="HTML")
 
+
 @dp.message(Command("services"))
 async def cmd_services(message: Message):
     """Команда просмотра услуг"""
     await show_services(message)
+
 
 @dp.message(Command("products"))
 async def cmd_products(message: Message):
     """Команда просмотра товаров"""
     await show_products_filter(message)
 
+
 @dp.message(Command("booking"))
 async def cmd_booking(message: Message, state: FSMContext):
     """Команда записи"""
     await handle_booking_deeplink(message, state)
+
 
 @dp.message(Command("contacts"))
 async def cmd_contacts(message: Message):
@@ -153,6 +153,7 @@ async def cmd_contacts(message: Message):
         reply_markup=main_menu_kb(message.from_user.id in config.ADMIN_IDS)
     )
 
+
 # ============ CALLBACK ОБРАБОТЧИКИ ============
 
 @dp.callback_query(F.data == "main_menu")
@@ -168,11 +169,13 @@ async def callback_main_menu(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
+
 @dp.callback_query(F.data == "services")
 async def callback_services(callback: CallbackQuery):
     """Показать услуги"""
     await show_services(callback.message, edit=True)
     await callback.answer()
+
 
 @dp.callback_query(F.data.startswith("service_nav:"))
 async def callback_service_nav(callback: CallbackQuery):
@@ -181,11 +184,13 @@ async def callback_service_nav(callback: CallbackQuery):
     await show_service_by_index(callback.message, callback.from_user.id, index, edit=True)
     await callback.answer()
 
+
 @dp.callback_query(F.data == "products")
 async def callback_products(callback: CallbackQuery):
     """Показать фильтр товаров"""
     await show_products_filter(callback.message, edit=True)
     await callback.answer()
+
 
 @dp.callback_query(F.data.startswith("products_filter:"))
 async def callback_products_filter(callback: CallbackQuery):
@@ -193,6 +198,7 @@ async def callback_products_filter(callback: CallbackQuery):
     filter_type = callback.data.split(":")[1]
     await show_products(callback.message, callback.from_user.id, filter_type, edit=True)
     await callback.answer()
+
 
 @dp.callback_query(F.data.startswith("product_nav:"))
 async def callback_product_nav(callback: CallbackQuery):
@@ -203,6 +209,7 @@ async def callback_product_nav(callback: CallbackQuery):
     await show_product_by_index(callback.message, callback.from_user.id, index, filter_type, edit=True)
     await callback.answer()
 
+
 @dp.callback_query(F.data.startswith("order_product:"))
 async def callback_order_product(callback: CallbackQuery):
     """Заказ товара"""
@@ -210,11 +217,13 @@ async def callback_order_product(callback: CallbackQuery):
     await handle_product_order_callback(callback, product_id)
     await callback.answer()
 
+
 @dp.callback_query(F.data == "contacts")
 async def callback_contacts(callback: CallbackQuery):
     """Контакты"""
     await cmd_contacts(callback.message)
     await callback.answer()
+
 
 @dp.callback_query(F.data == "faq")
 async def callback_faq(callback: CallbackQuery):
@@ -243,6 +252,7 @@ A: Да, количество образов обсуждается индиви
     )
     await callback.answer()
 
+
 # ============ ФУНКЦИИ ОТОБРАЖЕНИЯ ============
 
 async def show_services(message: Message, edit: bool = False):
@@ -260,13 +270,13 @@ async def show_services(message: Message, edit: bool = False):
             await message.answer(text, reply_markup=main_menu_kb())
         return
     
-    # Сохраняем для навигации
     user_navigation[message.chat.id] = {
         "services": services,
         "type": "services"
     }
     
     await show_service_by_index(message, message.chat.id, 0, edit)
+
 
 async def show_service_by_index(message: Message, user_id: int, index: int, edit: bool = False):
     """Показать услугу по индексу"""
@@ -293,7 +303,16 @@ async def show_service_by_index(message: Message, user_id: int, index: int, edit
 💰 <b>Стоимость:</b> {service.price:,.0f} руб.
 ⏱ <b>Длительность:</b> {service.duration or 'По договорённости'}"""
     
-    kb = services_navigation_kb(index, len(services), service.id)
+    # Проверяем есть ли подробная страница
+    has_detail = bool(service.detail_page_url)
+    
+    kb = services_navigation_kb(
+        index, 
+        len(services), 
+        service.id,
+        has_detail_page=has_detail,
+        detail_page_url=service.detail_page_url
+    )
     
     if service.photo_url:
         try:
@@ -314,6 +333,7 @@ async def show_service_by_index(message: Message, user_id: int, index: int, edit
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
+
 async def show_products_filter(message: Message, edit: bool = False):
     """Показать фильтр товаров"""
     text = """🎨 <b>Товары</b>
@@ -327,6 +347,7 @@ async def show_products_filter(message: Message, edit: bool = False):
         await message.edit_text(text, parse_mode="HTML", reply_markup=products_filter_kb())
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=products_filter_kb())
+
 
 async def show_products(message: Message, user_id: int, filter_type: str = "all", edit: bool = False):
     """Показать товары"""
@@ -358,6 +379,7 @@ async def show_products(message: Message, user_id: int, filter_type: str = "all"
     
     await show_product_by_index(message, user_id, 0, filter_type, edit)
 
+
 async def show_product_by_index(message: Message, user_id: int, index: int, filter_type: str, edit: bool = False):
     """Показать товар по индексу"""
     data = user_navigation.get(user_id, {})
@@ -377,7 +399,17 @@ async def show_product_by_index(message: Message, user_id: int, index: int, filt
 💰 <b>Стоимость:</b> {product.price:,.0f} руб.
 📦 <b>Тип:</b> {type_text}"""
     
-    kb = products_navigation_kb(index, len(products), product.id, filter_type)
+    # Проверяем есть ли подробная страница
+    has_detail = bool(product.detail_page_url)
+    
+    kb = products_navigation_kb(
+        index, 
+        len(products), 
+        product.id, 
+        filter_type,
+        has_detail_page=has_detail,
+        detail_page_url=product.detail_page_url
+    )
     
     if product.photo_url:
         try:
@@ -397,6 +429,7 @@ async def show_product_by_index(message: Message, user_id: int, index: int, filt
         await message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
 
 async def handle_product_order(message: Message, product_id: int):
     """Обработка заказа товара через deeplink"""
@@ -420,6 +453,7 @@ async def handle_product_order(message: Message, product_id: int):
 Или напишите прямо сюда, и мы свяжемся с вами!"""
     
     await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+
 
 async def handle_product_order_callback(callback: CallbackQuery, product_id: int):
     """Обработка заказа товара через callback"""
@@ -452,6 +486,7 @@ async def handle_product_order_callback(callback: CallbackQuery, product_id: int
         reply_markup=main_menu_kb()
     )
 
+
 # ============ ЗАПУСК ============
 
 async def main():
@@ -459,10 +494,12 @@ async def main():
     # Инициализируем БД
     await init_db()
     
-    logging.info("Бот запускается...")
+    logging.info("🚀 Бот запускается...")
+    logging.info(f"📡 Прокси: {config.PROXY_URL}")
     
     # Запускаем polling
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
