@@ -46,6 +46,10 @@ class AdminStates(StatesGroup):
     
     # Сообщение клиенту
     messaging_client = State()
+    
+    # Deeplink генератор
+    creating_deeplink_text = State()
+    creating_deeplink_button = State()
 
 # Временное хранилище
 admin_temp_data = {}
@@ -64,6 +68,182 @@ async def admin_panel(callback: CallbackQuery):
         reply_markup=admin_panel_kb()
     )
     await callback.answer()
+
+# ============ DEEPLINK ГЕНЕРАТОР ============
+
+@router.callback_query(F.data == "admin_deeplinks")
+async def admin_deeplinks(callback: CallbackQuery):
+    """Меню deeplink ссылок"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    text = f"""🔗 <b>Генератор ссылок</b>
+
+<b>Готовые ссылки:</b>
+
+📝 <b>Запись на съёмку:</b>
+<code>https://t.me/{config.MAIN_BOT_USERNAME}?start=booking</code>
+
+📸 <b>Посмотреть услуги:</b>
+<code>https://t.me/{config.MAIN_BOT_USERNAME}?start=services</code>
+
+🎨 <b>Посмотреть товары:</b>
+<code>https://t.me/{config.MAIN_BOT_USERNAME}?start=products</code>
+
+💡 Нажмите на ссылку чтобы скопировать!"""
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✨ Создать свою ссылку", callback_data="admin_create_deeplink")],
+        [InlineKeyboardButton(text="📋 Ссылки на услуги", callback_data="admin_deeplinks_services")],
+        [InlineKeyboardButton(text="🎨 Ссылки на товары", callback_data="admin_deeplinks_products")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]
+    ])
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_deeplinks_services")
+async def admin_deeplinks_services(callback: CallbackQuery):
+    """Ссылки на услуги"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    async with async_session() as session:
+        query = select(Service).where(Service.is_active == True).order_by(Service.order)
+        result = await session.execute(query)
+        services = result.scalars().all()
+    
+    text = "📸 <b>Ссылки на услуги:</b>\n\n"
+    
+    for service in services:
+        link = f"https://t.me/{config.MAIN_BOT_USERNAME}?start=book_{service.id}"
+        text += f"<b>{service.name}:</b>\n<code>{link}</code>\n\n"
+    
+    if not services:
+        text += "Нет активных услуг"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_deeplinks")]
+    ])
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_deeplinks_products")
+async def admin_deeplinks_products(callback: CallbackQuery):
+    """Ссылки на товары"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    async with async_session() as session:
+        query = select(Product).where(Product.is_active == True).order_by(Product.order)
+        result = await session.execute(query)
+        products = result.scalars().all()
+    
+    text = "🎨 <b>Ссылки на товары:</b>\n\n"
+    
+    for product in products:
+        link = f"https://t.me/{config.MAIN_BOT_USERNAME}?start=order_{product.id}"
+        text += f"<b>{product.name}:</b>\n<code>{link}</code>\n\n"
+    
+    if not products:
+        text += "Нет активных товаров"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_deeplinks")]
+    ])
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_create_deeplink")
+async def admin_create_deeplink(callback: CallbackQuery, state: FSMContext):
+    """Создание кастомной ссылки"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    await callback.message.edit_text(
+        "✨ <b>Создание ссылки</b>\n\n"
+        "Введите <b>текст сообщения</b>, которое будет отправлено при переходе по ссылке:\n\n"
+        "Можно использовать HTML форматирование:\n"
+        "<code>&lt;b&gt;жирный&lt;/b&gt;</code>\n"
+        "<code>&lt;i&gt;курсив&lt;/i&gt;</code>\n"
+        "<code>&lt;u&gt;подчёркнутый&lt;/u&gt;</code>",
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.creating_deeplink_text)
+    await callback.answer()
+
+@router.message(AdminStates.creating_deeplink_text)
+async def process_deeplink_text(message: Message, state: FSMContext):
+    """Обработка текста для deeplink"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    admin_temp_data[message.from_user.id] = {
+        "deeplink_text": message.text
+    }
+    
+    await message.answer(
+        "Теперь введите <b>текст кнопки</b> (или напишите 'нет' если кнопка не нужна):\n\n"
+        "Например: 📝 Записаться на съёмку",
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.creating_deeplink_button)
+
+@router.message(AdminStates.creating_deeplink_button)
+async def process_deeplink_button(message: Message, state: FSMContext):
+    """Обработка кнопки для deeplink"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    import hashlib
+    import time
+    
+    data = admin_temp_data.get(message.from_user.id, {})
+    deeplink_text = data.get("deeplink_text", "")
+    
+    # Создаём уникальный ID для ссылки
+    unique_id = hashlib.md5(f"{time.time()}".encode()).hexdigest()[:8]
+    
+    button_text = message.text.strip()
+    has_button = button_text.lower() not in ["нет", "no", "-", "без кнопки"]
+    
+    # Сохраняем в базу или файл (простой вариант - в память)
+    # В реальном проекте лучше сохранять в БД
+    
+    link = f"https://t.me/{config.MAIN_BOT_USERNAME}?start=custom_{unique_id}"
+    
+    result_text = f"""✅ <b>Ссылка создана!</b>
+
+🔗 <b>Ваша ссылка:</b>
+<code>{link}</code>
+
+📝 <b>Текст сообщения:</b>
+{deeplink_text}
+"""
+    
+    if has_button:
+        result_text += f"\n🔘 <b>Кнопка:</b> {button_text}"
+    
+    result_text += "\n\n⚠️ <i>Примечание: для полноценной работы кастомных ссылок нужно сохранять их в базу данных. Пока доступны только стандартные ссылки выше.</i>"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Все ссылки", callback_data="admin_deeplinks")],
+        [InlineKeyboardButton(text="⬅️ Админ-панель", callback_data="admin_panel")]
+    ])
+    
+    await message.answer(result_text, parse_mode="HTML", reply_markup=kb)
+    
+    admin_temp_data.pop(message.from_user.id, None)
+    await state.clear()
 
 # ============ УПРАВЛЕНИЕ УСЛУГАМИ ============
 
@@ -551,6 +731,78 @@ async def admin_cancel_booking(callback: CallbackQuery):
     await callback.answer("Заявка отменена")
     await admin_view_booking(callback)
 
+# ============ НАПИСАТЬ КЛИЕНТУ ============
+
+@router.callback_query(F.data.startswith("admin_b_message:"))
+async def admin_message_client_start(callback: CallbackQuery, state: FSMContext):
+    """Начало написания сообщения клиенту"""
+    if not is_admin(callback.from_user.id):
+        return
+    
+    booking_id = int(callback.data.split(":")[1])
+    
+    admin_temp_data[callback.from_user.id] = {"booking_id": booking_id}
+    
+    await callback.message.edit_text(
+        "💬 <b>Написать клиенту</b>\n\n"
+        "Введите сообщение, которое будет отправлено клиенту:\n\n"
+        "<i>Можно использовать HTML форматирование</i>",
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.messaging_client)
+    await callback.answer()
+
+@router.message(AdminStates.messaging_client)
+async def admin_send_message_to_client(message: Message, state: FSMContext):
+    """Отправка сообщения клиенту"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    from main_bot import bot
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    data = admin_temp_data.get(message.from_user.id, {})
+    booking_id = data.get("booking_id")
+    
+    if not booking_id:
+        await message.answer("❌ Ошибка: заявка не найдена")
+        await state.clear()
+        return
+    
+    async with async_session() as session:
+        booking = await session.get(Booking, booking_id)
+    
+    if not booking:
+        await message.answer("❌ Заявка не найдена")
+        await state.clear()
+        return
+    
+    try:
+        await bot.send_message(
+            booking.user_id,
+            f"💬 <b>Сообщение от фотографа:</b>\n\n{message.text}",
+            parse_mode="HTML"
+        )
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 К заявке", callback_data=f"admin_booking_view:{booking_id}")],
+            [InlineKeyboardButton(text="⬅️ Все заявки", callback_data="admin_bookings")]
+        ])
+        
+        await message.answer(
+            f"✅ Сообщение отправлено клиенту {booking.first_name}!",
+            reply_markup=kb
+        )
+    except Exception as e:
+        await message.answer(
+            f"❌ Не удалось отправить сообщение.\n"
+            f"Возможно клиент заблокировал бота.\n\n"
+            f"Ошибка: {e}"
+        )
+    
+    admin_temp_data.pop(message.from_user.id, None)
+    await state.clear()
+
 # ============ СТАТИСТИКА ============
 
 @router.callback_query(F.data == "admin_stats")
@@ -560,11 +812,9 @@ async def admin_stats(callback: CallbackQuery):
         return
     
     async with async_session() as session:
-        # Общее количество заявок
         total_bookings = await session.execute(select(func.count(Booking.id)))
         total = total_bookings.scalar()
         
-        # По статусам
         new_count = await session.execute(
             select(func.count(Booking.id)).where(Booking.status == "new")
         )
@@ -578,7 +828,6 @@ async def admin_stats(callback: CallbackQuery):
             select(func.count(Booking.id)).where(Booking.status == "cancelled")
         )
         
-        # Услуги и товары
         services_count = await session.execute(
             select(func.count(Service.id)).where(Service.is_active == True)
         )
